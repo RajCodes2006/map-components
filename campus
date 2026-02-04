@@ -1,0 +1,43 @@
+import React from "react";
+import { Badge } from "@/components/ui/badge";
+import { MapPin, ArrowRight } from "lucide-react";
+import { Link } from "react-router-dom";
+import { createPageUrl } from "@/utils";
+
+export default function NearbyPlaces({ locations }) {
+  const getCategoryIcon = (category) => {
+    const icons = {
+      shop: "🛍️",
+      cafeteria: "🍽️",
+      atm: "💳",
+      stationary: "📝",
+      library: "📚",
+      sports: "⚽",
+      medical: "⚕️"
+    };
+    return icons[category] || "📍";
+  };
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {locations.slice(0, 6).map((location) => (
+        <Link
+          key={location.id}
+          to={`${createPageUrl("Map")}?search=${location.name}`}
+          className="flex items-center justify-between p-3 bg-white rounded-lg hover:shadow-md transition-shadow border border-purple-100"
+        >
+          <div className="flex items-center gap-3">
+            <div className="text-2xl">{getCategoryIcon(location.category)}</div>
+            <div>
+              <p className="font-medium text-gray-900">{location.name}</p>
+              <p className="text-xs text-gray-500">
+                {Math.round(location.distance)}m away
+              </p>
+            </div>
+          </div>
+          <ArrowRight className="w-4 h-4 text-purple-600" />
+        </Link>
+      ))}
+    </div>
+  );
+}
