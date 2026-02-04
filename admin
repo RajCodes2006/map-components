@@ -1,0 +1,284 @@
+import React, { useState, useRef, useEffect } from "react";
+import { PathRoute } from "@/entities/PathRoute";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { MapContainer, TileLayer, Polyline, Marker, useMapEvents } from "react-leaflet";
+import { Trash2 } from "lucide-react";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+
+const waypointIcon = L.divIcon({
+  className: 'waypoint-marker',
+  html: `<div style="width: 16px; height: 16px; background-color: #7C3AED; border: 3px solid white; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>`,
+  iconSize: [16, 16],
+  iconAnchor: [8, 8]
+});
+
+function MapClickHandler({ onMapClick }) {
+  useMapEvents({
+    click: (e) => {
+      onMapClick(e.latlng);
+    }
+  });
+  return null;
+}
+
+export default function CreateRouteDialog({ locations, onClose, onSuccess }) {
+  const [formData, setFormData] = useState({
+    from_location: "",
+    to_location: "",
+    path_coordinates: [],
+    distance_meters: "",
+    estimated_time_minutes: "",
+    description: ""
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const handleMapClick = (latlng) => {
+    setFormData({
+      ...formData,
+      path_coordinates: [...formData.path_coordinates, { lat: latlng.lat, lng: latlng.lng }]
+    });
+  };
+
+  const clearLastPoint = () => {
+    setFormData({
+      ...formData,
+      path_coordinates: formData.path_coordinates.slice(0, -1)
+    });
+  };
+
+  const clearAllPoints = () => {
+    setFormData({
+      ...formData,
+      path_coordinates: []
+    });
+  };
+
+  const calculateTotalDistance = () => {
+    if (formData.path_coordinates.length < 2) return 0;
+    
+    let total = 0;
+    for (let i = 0; i < formData.path_coordinates.length - 1; i++) {
+      const p1 = formData.path_coordinates[i];
+      const p2 = formData.path_coordinates[i + 1];
+      
+      const R = 6371000; // meters
+      const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+      const dLon = (p2.lng - p1.lng) * Math.PI / 180;
+      
+      const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) *
+        Math.sin(dLon/2) * Math.sin(dLon/2);
+      
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+      total += R * c;
+    }
+    
+    return Math.round(total);
+  };
+
+  const autoCalculateDistance = () => {
+    const distance = calculateTotalDistance();
+    setFormData({
+      ...formData,
+      distance_meters: distance,
+      estimated_time_minutes: Math.ceil(distance / 83) // 5 km/h walking speed
+    });
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (formData.path_coordinates.length < 2) {
+      alert("Please add at least 2 waypoints on the map by clicking");
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      await PathRoute.create(formData);
+      onSuccess();
+    } catch (error) {
+      console.error("Error creating route:", error);
+      alert("Failed to create route. Please try again.");
+    }
+    setIsSubmitting(false);
+  };
+
+  return (
+    <Dialog open={true} onOpenChange={onClose}>
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Create Custom Walking Route</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>From Location</Label>
+              <Select
+                value={formData.from_location}
+                onValueChange={(value) => setFormData({...formData, from_location: value})}
+                required
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select start" />
+                </SelectTrigger>
+                <SelectContent>
+                  {locations.map((loc) => (
+                    <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div>
+              <Label>To Location</Label>
+              <Select
+                value={formData.to_location}
+                onValueChange={(value) => setFormData({...formData, to_location: value})}
+                required
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select end" />
+                </SelectTrigger>
+                <SelectContent>
+                  {locations.map((loc) => (
+                    <SelectItem key={loc.id} value={loc.name}>{loc.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label>Distance (meters)</Label>
+              <Input
+                type="number"
+                value={formData.distance_meters}
+                onChange={(e) => setFormData({...formData, distance_meters: parseInt(e.target.value) || ""})}
+                placeholder="e.g., 250"
+                required
+              />
+            </div>
+
+            <div>
+              <Label>Estimated Time (minutes)</Label>
+              <Input
+                type="number"
+                value={formData.estimated_time_minutes}
+                onChange={(e) => setFormData({...formData, estimated_time_minutes: parseInt(e.target.value) || ""})}
+                placeholder="e.g., 3"
+                required
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label>Description (optional)</Label>
+            <Textarea
+              value={formData.description}
+              onChange={(e) => setFormData({...formData, description: e.target.value})}
+              placeholder="e.g., Walk through main gate, turn left at cafeteria..."
+              rows={2}
+            />
+          </div>
+
+          <div>
+            <div className="flex justify-between items-center mb-2">
+              <Label>Click on map to add waypoints ({formData.path_coordinates.length} points)</Label>
+              <div className="flex gap-2">
+                {formData.path_coordinates.length > 2 && (
+                  <Button 
+                    type="button" 
+                    size="sm" 
+                    variant="outline" 
+                    onClick={autoCalculateDistance}
+                  >
+                    Auto Calculate Distance
+                  </Button>
+                )}
+                {formData.path_coordinates.length > 0 && (
+                  <>
+                    <Button type="button" size="sm" variant="outline" onClick={clearLastPoint}>
+                      Remove Last
+                    </Button>
+                    <Button type="button" size="sm" variant="outline" onClick={clearAllPoints}>
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </>
+                )}
+              </div>
+            </div>
+            
+            <div className="bg-blue-50 p-2 rounded-lg mb-2">
+              <p className="text-xs text-blue-900">
+                💡 Click on the map to create waypoints along the walking path. Add points at every turn or important landmark for accurate navigation.
+              </p>
+            </div>
+
+            <div className="h-[450px] border-2 border-purple-200 rounded-lg overflow-hidden">
+              <MapContainer
+                center={[30.7596, 76.5739]}
+                zoom={16}
+                className="h-full w-full"
+              >
+                <TileLayer
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution='&copy; OpenStreetMap'
+                />
+                <MapClickHandler onMapClick={handleMapClick} />
+                
+                {formData.path_coordinates.map((coord, idx) => (
+                  <Marker 
+                    key={idx} 
+                    position={[coord.lat, coord.lng]} 
+                    icon={waypointIcon}
+                  />
+                ))}
+                
+                {formData.path_coordinates.length > 1 && (
+                  <Polyline
+                    positions={formData.path_coordinates.map(c => [c.lat, c.lng])}
+                    color="#7C3AED"
+                    weight={5}
+                    opacity={0.8}
+                  />
+                )}
+              </MapContainer>
+            </div>
+          </div>
+
+          <div className="flex gap-3 pt-4 border-t">
+            <Button type="button" variant="outline" onClick={onClose} className="flex-1">
+              Cancel
+            </Button>
+            <Button 
+              type="submit" 
+              disabled={isSubmitting || formData.path_coordinates.length < 2} 
+              className="flex-1 bg-purple-600 hover:bg-purple-700"
+            >
+              {isSubmitting ? "Creating..." : "Create Route"}
+            </Button>
+          </div>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
